@@ -2,36 +2,94 @@
   'use strict';
 
   const CHARACTER_CONFIGS: CharacterConfig[] = [
-    { image: 'assets/characters/character1.png', anchorXRatio: 0.5, ropeLength: 200, size: 160 },
+    { id: 'chiikawa', image: 'assets/characters/치이카와.png', perchXRatio: 0.15, size: 140, reactionType: 'slip' },
+    { id: 'hachiware', image: 'assets/characters/하치와레.png', perchXRatio: 0.38, size: 140, reactionType: 'spin' },
+    { id: 'usagi', image: 'assets/characters/우사기.png', perchXRatio: 0.62, size: 140, reactionType: 'jump' },
+    { id: 'momonga', image: 'assets/characters/모몽가.png', perchXRatio: 0.85, size: 120, reactionType: 'glide' },
   ];
 
-  const GRAVITY = 20;
-  const DAMPING = 0.6;
-  const WIND_STRENGTH = 0.6;
-  const WIND_FREQ_1 = 0.37;
-  const WIND_FREQ_2 = 0.13;
-  const MAX_OMEGA = 12;
+  const SPAWN_Y = 6;
+  const AREA_SIDE_MARGIN = 30;
   const MAX_DT = 0.033;
   const CLICK_MAX_DURATION = 250;
   const CLICK_MAX_DISTANCE = 6;
-  const BOUNCE_KICK = 4;
+
+  const IDLE_SWAY_AMPLITUDE = 0.09;
+  const IDLE_SWAY_SPEED_MIN = 1.0;
+  const IDLE_SWAY_SPEED_MAX = 1.8;
+
+  const IDLE_DURATION_MIN = 1800;
+  const IDLE_DURATION_MAX = 4500;
+  const WALK_SPEED_MIN = 20;
+  const WALK_SPEED_MAX = 45;
+  const WALK_TARGET_PADDING = 40;
+
+  const SLIP_FALL_DURATION = 0.18;
+  const SLIP_CLIMB_DURATION = 0.5;
+  const SLIP_DROP_RATIO = 0.55;
+
+  const JUMP_UP_DURATION = 0.18;
+  const JUMP_DOWN_DURATION = 0.22;
+  const JUMP_HEIGHT_RATIO = 0.4;
+
+  const SPIN_DURATION = 0.45;
+
+  const GLIDE_DURATION = 0.9;
+  const GLIDE_DISTANCE = 140;
+  const GLIDE_RISE_RATIO = 0.25;
+
+  const GRAB_TRIGGER_RADIUS = 70;
+  const GRAB_DURATION = 1.1;
+  const GRAB_DISTANCE_MIN = 140;
+  const GRAB_DISTANCE_MAX = 220;
+  const GRAB_COOLDOWN_MIN = 15000;
+  const GRAB_COOLDOWN_MAX = 30000;
+
+  const DEFAULT_SETTINGS: AppSettings = {
+    dragEnabled: true,
+    reactionsEnabled: true,
+    autoWalkEnabled: true,
+    cursorChaseEnabled: false,
+    pinMode: 'desktop',
+    characters: { chiikawa: true, hachiware: true, usagi: true, momonga: true },
+  };
 
   interface Pet {
     config: CharacterConfig;
     image: HTMLImageElement;
     imageLoaded: boolean;
-    anchorX: number;
-    anchorY: number;
-    theta: number;
-    omega: number;
+    x: number;
+    y: number;
+    facing: 1 | -1;
+    walking: boolean;
     dragging: boolean;
-    lastDragTheta: number;
-    lastDragTime: number;
+    dragOffsetX: number;
+    dragOffsetY: number;
+    idleUntil: number;
+    targetX: number;
+    walkSpeed: number;
+    swayPhase: number;
+    swaySpeed: number;
+    swayAngle: number;
+    reactionActive: boolean;
+    reactionPhase: 1 | 2;
+    reactionT: number;
+    dropOffset: number;
+    spinAngle: number;
+    glideStartX: number;
+    glideDir: 1 | -1;
+    glideDistance: number;
+    grabbing: boolean;
+    grabT: number;
+    grabStartX: number;
+    grabStartY: number;
+    grabDx: number;
+    grabDy: number;
+    grabCooldownUntil: number;
     pointerDownTime: number;
     pointerDownX: number;
     pointerDownY: number;
     pointerMoved: boolean;
-    bounceKick: number;
   }
 
   const canvasElCheck = document.getElementById('pet-canvas');
@@ -49,12 +107,31 @@
   let windowWidth = window.innerWidth;
   let windowHeight = window.innerHeight;
   let mouseEventsIgnored = true;
-  let activeDragPet: Pet | null = null;
   let lastFrameTime = 0;
+  let activeDragPet: Pet | null = null;
+  let settings: AppSettings = DEFAULT_SETTINGS;
+  let cursorX: number | null = null;
+  let cursorY: number | null = null;
   const startTime = performance.now();
+
+  function randomRange(min: number, max: number): number {
+    return min + Math.random() * (max - min);
+  }
 
   function clamp(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, value));
+  }
+
+  function easeOutQuad(t: number): number {
+    return 1 - (1 - t) * (1 - t);
+  }
+
+  function easeInQuad(t: number): number {
+    return t * t;
+  }
+
+  function easeInOutQuad(t: number): number {
+    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
   }
 
   function setIgnoreMouseEvents(ignore: boolean): void {
@@ -65,24 +142,73 @@
     window.petAPI.setIgnoreMouseEvents(ignore);
   }
 
+  function areaBoundsX(size: number): { min: number; max: number } {
+    return {
+      min: AREA_SIDE_MARGIN + size / 2,
+      max: windowWidth - AREA_SIDE_MARGIN - size / 2,
+    };
+  }
+
+  function clampToWindow(pet: Pet): void {
+    const { min, max } = areaBoundsX(pet.config.size);
+    pet.x = clamp(pet.x, min, max);
+    pet.targetX = clamp(pet.targetX, min, max);
+    pet.y = clamp(pet.y, 0, windowHeight - pet.config.size);
+  }
+
+  function pickNewTarget(pet: Pet): void {
+    const { min, max } = areaBoundsX(pet.config.size);
+    pet.targetX = clamp(randomRange(min + WALK_TARGET_PADDING, max - WALK_TARGET_PADDING), min, max);
+    pet.walkSpeed = randomRange(WALK_SPEED_MIN, WALK_SPEED_MAX);
+  }
+
+  function goIdle(pet: Pet, elapsedMs: number): void {
+    pet.walking = false;
+    pet.idleUntil = elapsedMs + randomRange(IDLE_DURATION_MIN, IDLE_DURATION_MAX);
+  }
+
+  function isVisible(pet: Pet): boolean {
+    return settings.characters[pet.config.id];
+  }
+
   function createPet(config: CharacterConfig): Pet {
     const img = new Image();
     const pet: Pet = {
       config,
       image: img,
       imageLoaded: false,
-      anchorX: 0,
-      anchorY: 0,
-      theta: 0.15,
-      omega: 0,
+      x: windowWidth * config.perchXRatio,
+      y: SPAWN_Y,
+      facing: 1,
+      walking: false,
       dragging: false,
-      lastDragTheta: 0,
-      lastDragTime: 0,
+      dragOffsetX: 0,
+      dragOffsetY: 0,
+      idleUntil: 0,
+      targetX: windowWidth * config.perchXRatio,
+      walkSpeed: randomRange(WALK_SPEED_MIN, WALK_SPEED_MAX),
+      swayPhase: Math.random() * Math.PI * 2,
+      swaySpeed: randomRange(IDLE_SWAY_SPEED_MIN, IDLE_SWAY_SPEED_MAX),
+      swayAngle: 0,
+      reactionActive: false,
+      reactionPhase: 1,
+      reactionT: 0,
+      dropOffset: 0,
+      spinAngle: 0,
+      glideStartX: 0,
+      glideDir: 1,
+      glideDistance: 0,
+      grabbing: false,
+      grabT: 0,
+      grabStartX: 0,
+      grabStartY: 0,
+      grabDx: 0,
+      grabDy: 0,
+      grabCooldownUntil: randomRange(3000, 10000),
       pointerDownTime: 0,
       pointerDownX: 0,
       pointerDownY: 0,
       pointerMoved: false,
-      bounceKick: 0,
     };
     img.onload = (): void => {
       pet.imageLoaded = true;
@@ -91,13 +217,13 @@
       pet.imageLoaded = false;
     };
     img.src = config.image;
+    goIdle(pet, performance.now() - startTime);
     return pet;
   }
 
   function layoutPets(): void {
     for (const pet of pets) {
-      pet.anchorX = windowWidth * pet.config.anchorXRatio;
-      pet.anchorY = 0;
+      clampToWindow(pet);
     }
   }
 
@@ -113,26 +239,16 @@
     layoutPets();
   }
 
-  function bobPosition(pet: Pet): { x: number; y: number } {
-    const x = pet.anchorX + pet.config.ropeLength * Math.sin(pet.theta);
-    const y = pet.anchorY + pet.config.ropeLength * Math.cos(pet.theta);
-    return { x, y };
-  }
-
-  function characterCenter(pet: Pet): { x: number; y: number } {
-    const bob = bobPosition(pet);
-    const half = pet.config.size / 2;
-    return {
-      x: bob.x + half * Math.sin(pet.theta),
-      y: bob.y + half * Math.cos(pet.theta),
-    };
-  }
-
   function hitTest(pet: Pet, x: number, y: number): boolean {
-    const center = characterCenter(pet);
-    const dx = x - center.x;
-    const dy = y - center.y;
-    return Math.sqrt(dx * dx + dy * dy) <= pet.config.size / 2;
+    if (!isVisible(pet)) {
+      return false;
+    }
+    const half = pet.config.size / 2;
+    const centerX = pet.x;
+    const centerY = pet.y + pet.dropOffset + half;
+    const dx = x - centerX;
+    const dy = y - centerY;
+    return Math.sqrt(dx * dx + dy * dy) <= half;
   }
 
   function findPetAt(x: number, y: number): Pet | null {
@@ -144,44 +260,24 @@
     return null;
   }
 
-  function normalizeAngleDelta(delta: number): number {
-    let result = delta;
-    while (result > Math.PI) {
-      result -= Math.PI * 2;
-    }
-    while (result < -Math.PI) {
-      result += Math.PI * 2;
-    }
-    return result;
-  }
-
   function onPointerMove(ev: MouseEvent): void {
-    const x = ev.clientX;
-    const y = ev.clientY;
-
-    if (activeDragPet && activeDragPet.dragging) {
+    if (activeDragPet) {
       const pet = activeDragPet;
-      const dx = x - pet.anchorX;
-      const dy = y - pet.anchorY;
-      const newTheta = Math.atan2(dx, dy);
-      const now = performance.now();
-      const dt = Math.max((now - pet.lastDragTime) / 1000, 0.001);
-      const deltaTheta = normalizeAngleDelta(newTheta - pet.lastDragTheta);
+      const newX = ev.clientX - pet.dragOffsetX;
+      const newY = ev.clientY - pet.dragOffsetY;
+      const { min, max } = areaBoundsX(pet.config.size);
+      pet.x = clamp(newX, min, max);
+      pet.y = clamp(newY, 0, windowHeight - pet.config.size);
 
-      pet.omega = clamp(deltaTheta / dt, -MAX_OMEGA, MAX_OMEGA);
-      pet.theta = newTheta;
-      pet.lastDragTheta = newTheta;
-      pet.lastDragTime = now;
-
-      const moveDx = x - pet.pointerDownX;
-      const moveDy = y - pet.pointerDownY;
+      const moveDx = ev.clientX - pet.pointerDownX;
+      const moveDy = ev.clientY - pet.pointerDownY;
       if (Math.sqrt(moveDx * moveDx + moveDy * moveDy) > CLICK_MAX_DISTANCE) {
         pet.pointerMoved = true;
       }
       return;
     }
 
-    const hovered = findPetAt(x, y) !== null;
+    const hovered = findPetAt(ev.clientX, ev.clientY) !== null;
     setIgnoreMouseEvents(!hovered);
   }
 
@@ -190,46 +286,220 @@
     if (!pet) {
       return;
     }
-    pet.dragging = true;
-    pet.lastDragTheta = pet.theta;
-    pet.lastDragTime = performance.now();
     pet.pointerDownTime = performance.now();
     pet.pointerDownX = ev.clientX;
     pet.pointerDownY = ev.clientY;
     pet.pointerMoved = false;
-    activeDragPet = pet;
+
+    if (settings.dragEnabled) {
+      pet.dragging = true;
+      pet.dragOffsetX = ev.clientX - pet.x;
+      pet.dragOffsetY = ev.clientY - pet.y;
+      activeDragPet = pet;
+    }
+  }
+
+  function triggerReaction(pet: Pet): void {
+    pet.reactionActive = true;
+    pet.reactionPhase = 1;
+    pet.reactionT = 0;
+
+    if (pet.config.reactionType === 'glide') {
+      const { min, max } = areaBoundsX(pet.config.size);
+      const roomRight = max - pet.x;
+      const roomLeft = pet.x - min;
+      pet.glideDir = roomRight >= roomLeft ? 1 : -1;
+      pet.glideDistance = Math.min(GLIDE_DISTANCE, Math.max(roomRight, roomLeft));
+      pet.glideStartX = pet.x;
+      pet.facing = pet.glideDir;
+    }
+  }
+
+  function finishPointer(pet: Pet, ev: MouseEvent): void {
+    const moveDx = ev.clientX - pet.pointerDownX;
+    const moveDy = ev.clientY - pet.pointerDownY;
+    const moved = pet.pointerMoved || Math.sqrt(moveDx * moveDx + moveDy * moveDy) > CLICK_MAX_DISTANCE;
+    const duration = performance.now() - pet.pointerDownTime;
+
+    if (!moved && duration <= CLICK_MAX_DURATION && !pet.reactionActive && settings.reactionsEnabled) {
+      triggerReaction(pet);
+    } else if (moved) {
+      goIdle(pet, performance.now() - startTime);
+    }
   }
 
   function onPointerUp(ev: MouseEvent): void {
-    if (!activeDragPet) {
+    if (activeDragPet) {
+      const pet = activeDragPet;
+      activeDragPet = null;
+      pet.dragging = false;
+      finishPointer(pet, ev);
+      const stillHovered = findPetAt(ev.clientX, ev.clientY) !== null;
+      setIgnoreMouseEvents(!stillHovered);
       return;
     }
-    const pet = activeDragPet;
-    pet.dragging = false;
-    activeDragPet = null;
 
-    const duration = performance.now() - pet.pointerDownTime;
-    if (!pet.pointerMoved && duration <= CLICK_MAX_DURATION) {
-      pet.bounceKick += (Math.random() > 0.5 ? 1 : -1) * BOUNCE_KICK;
+    const pet = findPetAt(ev.clientX, ev.clientY);
+    if (!pet) {
+      return;
     }
-
-    const stillHovered = findPetAt(ev.clientX, ev.clientY) !== null;
-    setIgnoreMouseEvents(!stillHovered);
+    finishPointer(pet, ev);
   }
 
-  function step(pet: Pet, dt: number, elapsed: number): void {
-    if (pet.dragging) {
+  function stepWalk(pet: Pet, dt: number, elapsedMs: number): void {
+    if (!settings.autoWalkEnabled) {
+      pet.walking = false;
+      pet.swayPhase += dt * pet.swaySpeed;
+      pet.swayAngle = Math.sin(pet.swayPhase) * IDLE_SWAY_AMPLITUDE;
       return;
     }
 
-    const wind = WIND_STRENGTH * Math.sin(elapsed * WIND_FREQ_1) * Math.sin(elapsed * WIND_FREQ_2);
-    const gravityTorque = -(GRAVITY / pet.config.ropeLength) * Math.sin(pet.theta);
-    const dampingTorque = -DAMPING * pet.omega;
-    const alpha = gravityTorque + dampingTorque + wind + pet.bounceKick;
-    pet.bounceKick = 0;
+    if (!pet.walking) {
+      pet.swayPhase += dt * pet.swaySpeed;
+      pet.swayAngle = Math.sin(pet.swayPhase) * IDLE_SWAY_AMPLITUDE;
+      if (elapsedMs >= pet.idleUntil) {
+        pickNewTarget(pet);
+        pet.walking = true;
+      }
+      return;
+    }
 
-    pet.omega = clamp(pet.omega + alpha * dt, -MAX_OMEGA, MAX_OMEGA);
-    pet.theta += pet.omega * dt;
+    pet.swayAngle = 0;
+    const dx = pet.targetX - pet.x;
+    if (Math.abs(dx) < 2) {
+      goIdle(pet, elapsedMs);
+      return;
+    }
+    pet.facing = dx > 0 ? 1 : -1;
+    pet.x += pet.facing * pet.walkSpeed * dt;
+  }
+
+  function stepReaction(pet: Pet, dt: number, elapsedMs: number): void {
+    pet.dropOffset = 0;
+    pet.spinAngle = 0;
+    if (!pet.reactionActive) {
+      return;
+    }
+    pet.reactionT += dt;
+
+    if (pet.config.reactionType === 'slip') {
+      if (pet.reactionPhase === 1) {
+        const t = Math.min(pet.reactionT / SLIP_FALL_DURATION, 1);
+        pet.dropOffset = easeOutQuad(t) * pet.config.size * SLIP_DROP_RATIO;
+        if (t >= 1) {
+          pet.reactionPhase = 2;
+          pet.reactionT = 0;
+        }
+        return;
+      }
+      const t = Math.min(pet.reactionT / SLIP_CLIMB_DURATION, 1);
+      pet.dropOffset = (1 - easeInOutQuad(t)) * pet.config.size * SLIP_DROP_RATIO;
+      if (t >= 1) {
+        pet.reactionActive = false;
+        pet.dropOffset = 0;
+        goIdle(pet, elapsedMs);
+      }
+      return;
+    }
+
+    if (pet.config.reactionType === 'jump') {
+      if (pet.reactionPhase === 1) {
+        const t = Math.min(pet.reactionT / JUMP_UP_DURATION, 1);
+        pet.dropOffset = -easeOutQuad(t) * pet.config.size * JUMP_HEIGHT_RATIO;
+        if (t >= 1) {
+          pet.reactionPhase = 2;
+          pet.reactionT = 0;
+        }
+        return;
+      }
+      const t = Math.min(pet.reactionT / JUMP_DOWN_DURATION, 1);
+      pet.dropOffset = -(1 - easeInQuad(t)) * pet.config.size * JUMP_HEIGHT_RATIO;
+      if (t >= 1) {
+        pet.reactionActive = false;
+        pet.dropOffset = 0;
+        goIdle(pet, elapsedMs);
+      }
+      return;
+    }
+
+    if (pet.config.reactionType === 'spin') {
+      const t = Math.min(pet.reactionT / SPIN_DURATION, 1);
+      pet.spinAngle = easeInOutQuad(t) * Math.PI * 2;
+      if (t >= 1) {
+        pet.reactionActive = false;
+        pet.spinAngle = 0;
+        goIdle(pet, elapsedMs);
+      }
+      return;
+    }
+
+    const t = Math.min(pet.reactionT / GLIDE_DURATION, 1);
+    pet.x = pet.glideStartX + pet.glideDir * pet.glideDistance * easeInOutQuad(t);
+    pet.dropOffset = -Math.sin(t * Math.PI) * pet.config.size * GLIDE_RISE_RATIO;
+    if (t >= 1) {
+      pet.reactionActive = false;
+      pet.dropOffset = 0;
+      const { min, max } = areaBoundsX(pet.config.size);
+      pet.x = clamp(pet.x, min, max);
+      goIdle(pet, elapsedMs);
+    }
+  }
+
+  function triggerGrab(pet: Pet, elapsedMs: number): void {
+    const { min, max } = areaBoundsX(pet.config.size);
+    const roomRight = max - pet.x;
+    const roomLeft = pet.x - min;
+    const dir: 1 | -1 = roomRight >= roomLeft ? 1 : -1;
+    const distance = Math.min(randomRange(GRAB_DISTANCE_MIN, GRAB_DISTANCE_MAX), Math.max(roomRight, roomLeft));
+
+    pet.grabbing = true;
+    pet.grabT = 0;
+    pet.grabStartX = pet.x;
+    pet.grabStartY = pet.y;
+    pet.grabDx = dir * distance;
+    pet.grabDy = randomRange(-20, 20);
+    pet.facing = dir;
+    pet.grabCooldownUntil = elapsedMs + randomRange(GRAB_COOLDOWN_MIN, GRAB_COOLDOWN_MAX);
+
+    window.petAPI.grabCursor({
+      dx: pet.grabDx,
+      dy: pet.grabDy,
+      durationMs: GRAB_DURATION * 1000,
+    });
+  }
+
+  function maybeTriggerGrab(pet: Pet, elapsedMs: number): void {
+    if (
+      !settings.cursorChaseEnabled ||
+      pet.grabbing ||
+      pet.reactionActive ||
+      pet.dragging ||
+      elapsedMs < pet.grabCooldownUntil ||
+      cursorX === null ||
+      cursorY === null
+    ) {
+      return;
+    }
+    const centerX = pet.x;
+    const centerY = pet.y + pet.config.size / 2;
+    const dx = cursorX - centerX;
+    const dy = cursorY - centerY;
+    if (Math.sqrt(dx * dx + dy * dy) <= GRAB_TRIGGER_RADIUS) {
+      triggerGrab(pet, elapsedMs);
+    }
+  }
+
+  function stepGrab(pet: Pet, dt: number, elapsedMs: number): void {
+    pet.grabT += dt;
+    const t = Math.min(pet.grabT / GRAB_DURATION, 1);
+    const eased = easeInOutQuad(t);
+    pet.x = clamp(pet.grabStartX + pet.grabDx * eased, 0, windowWidth);
+    pet.y = clamp(pet.grabStartY + pet.grabDy * eased, 0, windowHeight - pet.config.size);
+    if (t >= 1) {
+      pet.grabbing = false;
+      clampToWindow(pet);
+      goIdle(pet, elapsedMs);
+    }
   }
 
   function drawPlaceholder(pet: Pet): void {
@@ -244,22 +514,13 @@
   }
 
   function drawPet(pet: Pet): void {
-    const bob = bobPosition(pet);
-
-    context.save();
-    context.strokeStyle = 'rgba(80, 80, 80, 0.8)';
-    context.lineWidth = 1.5;
-    context.beginPath();
-    context.moveTo(pet.anchorX, pet.anchorY);
-    context.lineTo(bob.x, bob.y);
-    context.stroke();
-    context.restore();
-
     const size = pet.config.size;
+    const angle = pet.reactionActive && pet.config.reactionType === 'spin' ? pet.spinAngle : pet.swayAngle;
 
     context.save();
-    context.translate(bob.x, bob.y);
-    context.rotate(pet.theta);
+    context.translate(pet.x, pet.y + pet.dropOffset);
+    context.rotate(angle);
+    context.scale(pet.facing, 1);
 
     if (pet.imageLoaded) {
       context.drawImage(pet.image, -size / 2, 0, size, size);
@@ -276,14 +537,28 @@
     }
     const dt = Math.min((timestamp - lastFrameTime) / 1000, MAX_DT);
     lastFrameTime = timestamp;
-    const elapsed = (timestamp - startTime) / 1000;
-
-    for (const pet of pets) {
-      step(pet, dt, elapsed);
-    }
+    const elapsedMs = timestamp - startTime;
 
     context.clearRect(0, 0, windowWidth, windowHeight);
+
     for (const pet of pets) {
+      if (!isVisible(pet)) {
+        continue;
+      }
+      if (pet.dragging) {
+        drawPet(pet);
+        continue;
+      }
+      if (pet.grabbing) {
+        stepGrab(pet, dt, elapsedMs);
+        drawPet(pet);
+        continue;
+      }
+      if (!pet.reactionActive) {
+        stepWalk(pet, dt, elapsedMs);
+        maybeTriggerGrab(pet, elapsedMs);
+      }
+      stepReaction(pet, dt, elapsedMs);
       drawPet(pet);
     }
 
@@ -297,6 +572,13 @@
     window.addEventListener('mousemove', onPointerMove);
     window.addEventListener('mousedown', onPointerDown);
     window.addEventListener('mouseup', onPointerUp);
+    window.petAPI.onSettingsChanged((updated) => {
+      settings = updated;
+    });
+    window.petAPI.onCursorPos((point) => {
+      cursorX = point.x;
+      cursorY = point.y;
+    });
     requestAnimationFrame(render);
   }
 
