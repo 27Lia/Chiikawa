@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "npm run build && electron .",
     "start:top": "npm run build && PIN_MODE=top electron .",
-    "dist": "npm run build && electron-builder --mac"
+    "dist": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
