@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline';" />
+<title>치이카와 펫 설정</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #f7f3ee;
+    color: #3a2f28;
+  }
+  .container {
+    padding: 20px;
+  }
+  h1 {
+    font-size: 16px;
+    margin: 0 0 16px;
+  }
+  section {
+    margin-bottom: 18px;
+  }
+  h2 {
+    font-size: 12px;
+    color: #8a7a6c;
+    margin: 0 0 8px;
+    font-weight: 600;
+  }
+  label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 16px;
+    height: 16px;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid #e3dcd3;
+    margin: 16px 0;
+  }
+  .status {
+    font-size: 12px;
+    color: #8a7a6c;
+    margin: 4px 0 8px;
+  }
+  .status.granted {
+    color: #2e7d32;
+  }
+  .status.denied {
+    color: #c0392b;
+  }
+  button {
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid #d8cdbf;
+    background: #fff;
+    cursor: pointer;
+  }
+  button:hover {
+    background: #f0e9e0;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>치이카와 펫 설정</h1>
+
+  <section>
+    <h2>동작</h2>
+    <label><input type="checkbox" id="dragEnabled" /> 마우스로 끌어서 옮기기</label>
+    <label><input type="checkbox" id="reactionsEnabled" /> 클릭하면 반응하기</label>
+    <label><input type="checkbox" id="autoWalkEnabled" /> 가만히 있다가 자동으로 돌아다니기</label>
+  </section>
+
+  <section>
+    <h2>표시 위치</h2>
+    <label><input type="radio" name="pinMode" id="pinModeDesktop" value="desktop" /> 바탕화면에서만 보이기</label>
+    <label><input type="radio" name="pinMode" id="pinModeTop" value="top" /> 다른 창 위에서도 항상 보이기</label>
+  </section>
+
+  <section>
+    <h2>장난</h2>
+    <label><input type="checkbox" id="cursorChaseEnabled" /> 커서를 끌고 도망가기</label>
+    <p class="status" id="accessibilityStatus">권한 확인 중...</p>
+    <button id="requestPermissionBtn" type="button">손쉬운 사용 권한 허용하기</button>
+  </section>
+
+  <section>
+    <h2>캐릭터</h2>
+    <label><input type="checkbox" id="char-chiikawa" /> 치이카와</label>
+    <label><input type="checkbox" id="char-hachiware" /> 하치와레</label>
+    <label><input type="checkbox" id="char-usagi" /> 우사기</label>
+    <label><input type="checkbox" id="char-momonga" /> 모몽가</label>
+  </section>
+</div>
+<script src="dist/settings-renderer.js"></script>
+</body>
+</html>
