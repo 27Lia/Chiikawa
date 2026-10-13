@@ -216,6 +216,9 @@ function refreshTrayMenu(): void {
 function createTray(): void {
   tray = new Tray(buildTrayIcon());
   tray.setToolTip('HangingPet');
+  if (process.platform === 'darwin') {
+    tray.setTitle('🐾');
+  }
   refreshTrayMenu();
 }
 
