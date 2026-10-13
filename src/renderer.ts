@@ -2,10 +2,10 @@
   'use strict';
 
   const CHARACTER_CONFIGS: CharacterConfig[] = [
-    { id: 'chiikawa', image: 'assets/characters/치이카와.png', perchXRatio: 0.15, size: 140, reactionType: 'slip' },
-    { id: 'hachiware', image: 'assets/characters/하치와레.png', perchXRatio: 0.38, size: 140, reactionType: 'spin' },
-    { id: 'usagi', image: 'assets/characters/우사기.png', perchXRatio: 0.62, size: 140, reactionType: 'jump' },
-    { id: 'momonga', image: 'assets/characters/모몽가.png', perchXRatio: 0.85, size: 120, reactionType: 'glide' },
+    { id: 'chiikawa', image: 'assets/characters/chiikawa.png', perchXRatio: 0.15, size: 140, reactionType: 'slip' },
+    { id: 'hachiware', image: 'assets/characters/hachiware.png', perchXRatio: 0.38, size: 140, reactionType: 'spin' },
+    { id: 'usagi', image: 'assets/characters/usagi.png', perchXRatio: 0.62, size: 140, reactionType: 'jump' },
+    { id: 'momonga', image: 'assets/characters/momonga.png', perchXRatio: 0.85, size: 120, reactionType: 'glide' },
   ];
 
   const SPAWN_Y = 6;
