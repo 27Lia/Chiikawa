@@ -6,27 +6,16 @@ import {
   nativeImage,
   screen,
   ipcMain,
-  systemPreferences,
 } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 
 type AlwaysOnTopLevel = Parameters<BrowserWindow['setAlwaysOnTop']>[1];
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let robot: any = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  robot = require('@hurdlegroup/robotjs');
-} catch {
-  robot = null;
-}
-
 const DEFAULT_SETTINGS: AppSettings = {
   dragEnabled: true,
   reactionsEnabled: true,
   autoWalkEnabled: true,
-  cursorChaseEnabled: false,
   pinMode: process.env.PIN_MODE === 'top' ? 'top' : 'desktop',
   characters: {
     chiikawa: true,
@@ -65,7 +54,6 @@ let settings: AppSettings = loadSettings();
 let mainWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let cursorPollTimer: NodeJS.Timeout | null = null;
 
 function applyWindowLevel(): void {
   if (!mainWindow) {
@@ -75,55 +63,9 @@ function applyWindowLevel(): void {
   mainWindow.setAlwaysOnTop(true, level);
 }
 
-function isAccessibilityTrusted(): boolean {
-  if (process.platform !== 'darwin') {
-    return true;
-  }
-  return systemPreferences.isTrustedAccessibilityClient(false);
-}
-
-function broadcastAccessibilityStatus(): void {
-  const granted = isAccessibilityTrusted();
-  mainWindow?.webContents.send('accessibility-status', granted);
-  settingsWindow?.webContents.send('accessibility-status', granted);
-}
-
-function startCursorPolling(): void {
-  if (cursorPollTimer) {
-    return;
-  }
-  cursorPollTimer = setInterval(() => {
-    if (!mainWindow) {
-      return;
-    }
-    const globalPoint = screen.getCursorScreenPoint();
-    const bounds = mainWindow.getBounds();
-    mainWindow.webContents.send('cursor-pos', {
-      x: globalPoint.x - bounds.x,
-      y: globalPoint.y - bounds.y,
-    });
-  }, 80);
-}
-
-function stopCursorPolling(): void {
-  if (cursorPollTimer) {
-    clearInterval(cursorPollTimer);
-    cursorPollTimer = null;
-  }
-}
-
-function syncCursorPolling(): void {
-  if (settings.cursorChaseEnabled) {
-    startCursorPolling();
-  } else {
-    stopCursorPolling();
-  }
-}
-
 function broadcastSettings(): void {
   mainWindow?.webContents.send('settings-changed', settings);
   settingsWindow?.webContents.send('settings-changed', settings);
-  broadcastAccessibilityStatus();
 }
 
 function updateSettings(partial: Partial<AppSettings>): void {
@@ -134,35 +76,8 @@ function updateSettings(partial: Partial<AppSettings>): void {
   };
   saveSettings(settings);
   applyWindowLevel();
-  syncCursorPolling();
   broadcastSettings();
   refreshTrayMenu();
-}
-
-function performCursorGrab(dx: number, dy: number, durationMs: number): void {
-  if (!robot || !settings.cursorChaseEnabled || !isAccessibilityTrusted()) {
-    return;
-  }
-  const display = screen.getPrimaryDisplay().bounds;
-  const start = robot.getMousePos();
-  const targetX = Math.max(display.x, Math.min(display.x + display.width, start.x + dx));
-  const targetY = Math.max(display.y, Math.min(display.y + display.height, start.y + dy));
-  const steps = Math.max(1, Math.round(durationMs / 16));
-  const stepX = (targetX - start.x) / steps;
-  const stepY = (targetY - start.y) / steps;
-  let i = 0;
-  const timer = setInterval(() => {
-    i += 1;
-    try {
-      robot.moveMouse(Math.round(start.x + stepX * i), Math.round(start.y + stepY * i));
-    } catch {
-      clearInterval(timer);
-      return;
-    }
-    if (i >= steps) {
-      clearInterval(timer);
-    }
-  }, 16);
 }
 
 function createWindow(): void {
@@ -217,7 +132,7 @@ function createSettingsWindow(): void {
 
   settingsWindow = new BrowserWindow({
     width: 380,
-    height: 640,
+    height: 560,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -320,28 +235,6 @@ ipcMain.on('update-settings', (_event, partial: unknown) => {
   updateSettings(partial as Partial<AppSettings>);
 });
 
-ipcMain.handle('get-accessibility-status', () => isAccessibilityTrusted());
-
-ipcMain.handle('request-accessibility-permission', () => {
-  if (process.platform !== 'darwin') {
-    return true;
-  }
-  const granted = systemPreferences.isTrustedAccessibilityClient(true);
-  broadcastAccessibilityStatus();
-  return granted;
-});
-
-ipcMain.on('grab-cursor', (_event, payload: unknown) => {
-  if (typeof payload !== 'object' || payload === null) {
-    return;
-  }
-  const { dx, dy, durationMs } = payload as { dx: number; dy: number; durationMs: number };
-  if (typeof dx !== 'number' || typeof dy !== 'number' || typeof durationMs !== 'number') {
-    return;
-  }
-  performCursorGrab(dx, dy, durationMs);
-});
-
 app.whenReady().then(() => {
   if (process.platform === 'darwin') {
     app.dock?.hide();
@@ -349,7 +242,6 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
   createSettingsWindow();
-  syncCursorPolling();
 });
 
 app.on('window-all-closed', () => {

@@ -12,14 +12,6 @@ const petAPI: PetAPI = {
       callback(settings);
     });
   },
-  onCursorPos(callback: (point: CursorPoint) => void): void {
-    ipcRenderer.on('cursor-pos', (_event, point: CursorPoint) => {
-      callback(point);
-    });
-  },
-  grabCursor(payload: { dx: number; dy: number; durationMs: number }): void {
-    ipcRenderer.send('grab-cursor', payload);
-  },
 };
 
 contextBridge.exposeInMainWorld('petAPI', petAPI);

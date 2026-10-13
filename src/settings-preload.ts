@@ -12,17 +12,6 @@ const settingsAPI: SettingsAPI = {
       callback(settings);
     });
   },
-  getAccessibilityStatus(): Promise<boolean> {
-    return ipcRenderer.invoke('get-accessibility-status');
-  },
-  requestAccessibilityPermission(): Promise<boolean> {
-    return ipcRenderer.invoke('request-accessibility-permission');
-  },
-  onAccessibilityStatus(callback: (granted: boolean) => void): void {
-    ipcRenderer.on('accessibility-status', (_event, granted: boolean) => {
-      callback(granted);
-    });
-  },
 };
 
 contextBridge.exposeInMainWorld('settingsAPI', settingsAPI);

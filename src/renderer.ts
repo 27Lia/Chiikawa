@@ -38,18 +38,10 @@
   const GLIDE_DISTANCE = 140;
   const GLIDE_RISE_RATIO = 0.25;
 
-  const GRAB_TRIGGER_RADIUS = 70;
-  const GRAB_DURATION = 1.1;
-  const GRAB_DISTANCE_MIN = 140;
-  const GRAB_DISTANCE_MAX = 220;
-  const GRAB_COOLDOWN_MIN = 15000;
-  const GRAB_COOLDOWN_MAX = 30000;
-
   const DEFAULT_SETTINGS: AppSettings = {
     dragEnabled: true,
     reactionsEnabled: true,
     autoWalkEnabled: true,
-    cursorChaseEnabled: false,
     pinMode: 'desktop',
     characters: { chiikawa: true, hachiware: true, usagi: true, momonga: true },
   };
@@ -79,13 +71,6 @@
     glideStartX: number;
     glideDir: 1 | -1;
     glideDistance: number;
-    grabbing: boolean;
-    grabT: number;
-    grabStartX: number;
-    grabStartY: number;
-    grabDx: number;
-    grabDy: number;
-    grabCooldownUntil: number;
     pointerDownTime: number;
     pointerDownX: number;
     pointerDownY: number;
@@ -110,8 +95,6 @@
   let lastFrameTime = 0;
   let activeDragPet: Pet | null = null;
   let settings: AppSettings = DEFAULT_SETTINGS;
-  let cursorX: number | null = null;
-  let cursorY: number | null = null;
   const startTime = performance.now();
 
   function randomRange(min: number, max: number): number {
@@ -198,13 +181,6 @@
       glideStartX: 0,
       glideDir: 1,
       glideDistance: 0,
-      grabbing: false,
-      grabT: 0,
-      grabStartX: 0,
-      grabStartY: 0,
-      grabDx: 0,
-      grabDy: 0,
-      grabCooldownUntil: randomRange(3000, 10000),
       pointerDownTime: 0,
       pointerDownX: 0,
       pointerDownY: 0,
@@ -445,63 +421,6 @@
     }
   }
 
-  function triggerGrab(pet: Pet, elapsedMs: number): void {
-    const { min, max } = areaBoundsX(pet.config.size);
-    const roomRight = max - pet.x;
-    const roomLeft = pet.x - min;
-    const dir: 1 | -1 = roomRight >= roomLeft ? 1 : -1;
-    const distance = Math.min(randomRange(GRAB_DISTANCE_MIN, GRAB_DISTANCE_MAX), Math.max(roomRight, roomLeft));
-
-    pet.grabbing = true;
-    pet.grabT = 0;
-    pet.grabStartX = pet.x;
-    pet.grabStartY = pet.y;
-    pet.grabDx = dir * distance;
-    pet.grabDy = randomRange(-20, 20);
-    pet.facing = dir;
-    pet.grabCooldownUntil = elapsedMs + randomRange(GRAB_COOLDOWN_MIN, GRAB_COOLDOWN_MAX);
-
-    window.petAPI.grabCursor({
-      dx: pet.grabDx,
-      dy: pet.grabDy,
-      durationMs: GRAB_DURATION * 1000,
-    });
-  }
-
-  function maybeTriggerGrab(pet: Pet, elapsedMs: number): void {
-    if (
-      !settings.cursorChaseEnabled ||
-      pet.grabbing ||
-      pet.reactionActive ||
-      pet.dragging ||
-      elapsedMs < pet.grabCooldownUntil ||
-      cursorX === null ||
-      cursorY === null
-    ) {
-      return;
-    }
-    const centerX = pet.x;
-    const centerY = pet.y + pet.config.size / 2;
-    const dx = cursorX - centerX;
-    const dy = cursorY - centerY;
-    if (Math.sqrt(dx * dx + dy * dy) <= GRAB_TRIGGER_RADIUS) {
-      triggerGrab(pet, elapsedMs);
-    }
-  }
-
-  function stepGrab(pet: Pet, dt: number, elapsedMs: number): void {
-    pet.grabT += dt;
-    const t = Math.min(pet.grabT / GRAB_DURATION, 1);
-    const eased = easeInOutQuad(t);
-    pet.x = clamp(pet.grabStartX + pet.grabDx * eased, 0, windowWidth);
-    pet.y = clamp(pet.grabStartY + pet.grabDy * eased, 0, windowHeight - pet.config.size);
-    if (t >= 1) {
-      pet.grabbing = false;
-      clampToWindow(pet);
-      goIdle(pet, elapsedMs);
-    }
-  }
-
   function drawPlaceholder(pet: Pet): void {
     const size = pet.config.size;
     context.beginPath();
@@ -549,14 +468,8 @@
         drawPet(pet);
         continue;
       }
-      if (pet.grabbing) {
-        stepGrab(pet, dt, elapsedMs);
-        drawPet(pet);
-        continue;
-      }
       if (!pet.reactionActive) {
         stepWalk(pet, dt, elapsedMs);
-        maybeTriggerGrab(pet, elapsedMs);
       }
       stepReaction(pet, dt, elapsedMs);
       drawPet(pet);
@@ -574,10 +487,6 @@
     window.addEventListener('mouseup', onPointerUp);
     window.petAPI.onSettingsChanged((updated) => {
       settings = updated;
-    });
-    window.petAPI.onCursorPos((point) => {
-      cursorX = point.x;
-      cursorY = point.y;
     });
     requestAnimationFrame(render);
   }
