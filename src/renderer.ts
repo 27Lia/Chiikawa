@@ -34,14 +34,16 @@
     bounceKick: number;
   }
 
-  const canvasEl = document.getElementById('pet-canvas');
-  if (!(canvasEl instanceof HTMLCanvasElement)) {
+  const canvasElCheck = document.getElementById('pet-canvas');
+  if (!(canvasElCheck instanceof HTMLCanvasElement)) {
     throw new Error('canvas not found');
   }
-  const context = canvasEl.getContext('2d');
-  if (!context) {
+  const canvasEl: HTMLCanvasElement = canvasElCheck;
+  const contextCheck = canvasEl.getContext('2d');
+  if (!contextCheck) {
     throw new Error('2d context not available');
   }
+  const context: CanvasRenderingContext2D = contextCheck;
 
   let pets: Pet[] = [];
   let windowWidth = window.innerWidth;
