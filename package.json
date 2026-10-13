@@ -1,0 +1,38 @@
+{
+  "name": "hangingpet",
+  "version": "1.0.0",
+  "description": "macOS 데스크톱 펫 앱 - 화면 상단에 매달려 흔들리는 캐릭터",
+  "main": "dist/main.js",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && electron .",
+    "start:top": "npm run build && PIN_MODE=top electron .",
+    "dist": "npm run build && electron-builder --mac"
+  },
+  "devDependencies": {},
+  "build": {
+    "appId": "com.sunmi.hangingpet",
+    "productName": "HangingPet",
+    "files": [
+      "dist/**/*",
+      "index.html",
+      "assets/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.utilities"
+    }
+  }
+}
