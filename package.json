@@ -22,7 +22,11 @@
     "files": [
       "dist/**/*",
       "index.html",
+      "settings.html",
       "assets/**/*"
+    ],
+    "asarUnpack": [
+      "**/node_modules/@hurdlegroup/robotjs/**/*"
     ],
     "directories": {
       "output": "release"
@@ -39,5 +43,8 @@
       ],
       "category": "public.app-category.utilities"
     }
+  },
+  "dependencies": {
+    "@hurdlegroup/robotjs": "^0.12.3"
   }
 }
